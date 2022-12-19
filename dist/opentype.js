@@ -1,5 +1,5 @@
 /**
- * https://opentype.js.org v1.3.4 | (c) Frederik De Bleser and other contributors | MIT License | Uses tiny-inflate by Devon Govett and string.prototype.codepointat polyfill by Mathias Bynens
+ * https://opentype.js.org v1.3.5 | (c) Frederik De Bleser and other contributors | MIT License | Uses tiny-inflate by Devon Govett and string.prototype.codepointat polyfill by Mathias Bynens
  */
 
 (function (global, factory) {
@@ -1690,8 +1690,14 @@
 	        var k = parseInt(keys[i], 0);
 	        var v = m[k];
 	        // Value comes before the key.
-	        d = d.concat(encode.OPERAND(v.value, v.type));
-	        d = d.concat(encode.OPERATOR(k));
+	        var enc1 = encode.OPERAND(v.value, v.type);
+	        var enc2 = encode.OPERATOR(k);
+	        for (var j = 0; j < enc1.length; j++) {
+	            d.push(enc1[j]);
+	        }
+	        for (var j$1 = 0; j$1 < enc2.length; j$1++) {
+	            d.push(enc2[j$1]);
+	        }
 	    }
 
 	    return d;
@@ -1727,19 +1733,34 @@
 	    if (Array.isArray(type)) {
 	        for (var i = 0; i < type.length; i += 1) {
 	            check.argument(v.length === type.length, 'Not enough arguments given for type' + type);
-	            d = d.concat(encode.OPERAND(v[i], type[i]));
+	            var enc1 = encode.OPERAND(v[i], type[i]);
+	            for (var j = 0; j < enc1.length; j++) {
+	                d.push(enc1[j]);
+	            }
 	        }
 	    } else {
 	        if (type === 'SID') {
-	            d = d.concat(encode.NUMBER(v));
+	            var enc1$1 = encode.NUMBER(v);
+	            for (var j$1 = 0; j$1 < enc1$1.length; j$1++) {
+	                d.push(enc1$1[j$1]);
+	            }
 	        } else if (type === 'offset') {
 	            // We make it easy for ourselves and always encode offsets as
 	            // 4 bytes. This makes offset calculation for the top dict easier.
-	            d = d.concat(encode.NUMBER32(v));
+	            var enc1$2 = encode.NUMBER32(v);
+	            for (var j$2 = 0; j$2 < enc1$2.length; j$2++) {
+	                d.push(enc1$2[j$2]);
+	            }
 	        } else if (type === 'number') {
-	            d = d.concat(encode.NUMBER(v));
+	            var enc1$3 = encode.NUMBER(v);
+	            for (var j$3 = 0; j$3 < enc1$3.length; j$3++) {
+	                d.push(enc1$3[j$3]);
+	            }
 	        } else if (type === 'real') {
-	            d = d.concat(encode.REAL(v));
+	            var enc1$4 = encode.REAL(v);
+	            for (var j$4 = 0; j$4 < enc1$4.length; j$4++) {
+	                d.push(enc1$4[j$4]);
+	            }
 	        } else {
 	            throw new Error('Unknown operand type ' + type);
 	            // FIXME Add support for booleans
@@ -1774,7 +1795,10 @@
 
 	    for (var i = 0; i < length; i += 1) {
 	        var op = ops[i];
-	        d = d.concat(encode[op.type](op.value));
+	        var enc1 = encode[op.type](op.value);
+	        for (var j = 0; j < enc1.length; j++) {
+	            d.push(enc1[j]);
+	        }
 	    }
 
 	    if (wmm) {
@@ -1841,10 +1865,12 @@
 
 	        if (field.type === 'TABLE') {
 	            subtableOffsets.push(d.length);
-	            d = d.concat([0, 0]);
+	            d.push(0, 0);
 	            subtables.push(bytes);
 	        } else {
-	            d = d.concat(bytes);
+	            for (var j = 0; j < bytes.length; j++) {
+	                d.push(bytes[j]);
+	            }
 	        }
 	    }
 
@@ -1854,7 +1880,9 @@
 	        check.argument(offset < 65536, 'Table ' + table.tableName + ' too big.');
 	        d[o] = offset >> 8;
 	        d[o + 1] = offset & 0xff;
-	        d = d.concat(subtables[i$1]);
+	        for (var j$1 = 0; j$1 < subtables[i$1].length; j$1++) {
+	            d.push(subtables[i$1][j$1]);
+	        }
 	    }
 
 	    return d;
@@ -2588,6 +2616,74 @@
 	    throw new Error('0x' + startOffset.toString(16) + ': Coverage format must be 1 or 2.');
 	};
 
+	/**
+	 * Parse a BaseArray Table in GPOS table
+	 * https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/gpos#lookup-type-4-mark-to-base-attachment-positioning-subtable
+	 *
+	 * @param {Number} marksClassCount
+	 * @returns {Array}
+	 */
+	Parser.prototype.parseBaseArray = function(marksClassCount) {
+	    var count = this.parseUShort();
+	    return this.parseList(count, Parser.list(
+	        marksClassCount,
+	        Parser.pointer(Parser.anchor)
+	    ));
+	};
+
+	/**
+	 * Parse a MarkArray Table in GPOS table
+	 * https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/gpos_delta#mark-array-table
+	 *
+	 * @returns {Array}
+	 */
+	Parser.prototype.parseMarkArray = function() {
+	    var count = this.parseUShort();
+	    return this.parseRecordList(count, {
+	        class: Parser.uShort,
+	        attachmentPoint: Parser.pointer(Parser.anchor)
+	    });
+	};
+
+	/**
+	 * Parse a an anchor definition Table in GPOS table
+	 * https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/gpos_delta#anchor-tables
+	 *
+	 * @returns {Object} Anchor object representing format type
+	 */
+	Parser.prototype.parseAnchorPoint = function() {
+	    var startOffset = this.offset + this.relativeOffset;
+	    var format = this.parseUShort();
+	    switch (format) {
+	        case 1:
+	            return {
+	                format: format,
+	                xCoordinate: this.parseShort(),
+	                yCoordinate: this.parseShort()
+	            };
+	        case 2:
+	            return {
+	                format: format,
+	                xCoordinate: this.parseShort(),
+	                yCoordinate: this.parseShort(),
+	                anchorPoint: this.parseUShort()
+	            };
+
+	        // TODO: Add a support Device offsets
+	        // https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/gpos_delta#anchor-table-format-3-design-units-plus-device-or-variationindex-tables
+	        case 3:
+	            return {
+	                format: format,
+	                xCoordinate: this.parseShort(),
+	                yCoordinate: this.parseShort(),
+	                xDevice: 0x00,
+	                yDevice: 0x00,
+	            };
+	    }
+
+	    throw new Error('0x' + startOffset.toString(16) + ': Anchor format must be 1, 2 or 3.');
+	};
+
 	// Parse a Class Definition Table in a GSUB, GPOS or GDEF table.
 	// https://www.microsoft.com/typography/OTSPEC/chapter2.htm
 	Parser.prototype.parseClassDef = function() {
@@ -2659,6 +2755,7 @@
 	Parser.uLongList = Parser.prototype.parseULongList;
 	Parser.struct = Parser.prototype.parseStruct;
 	Parser.coverage = Parser.prototype.parseCoverage;
+	Parser.anchor = Parser.prototype.parseAnchorPoint;
 	Parser.classDef = Parser.prototype.parseClassDef;
 
 	///// Script, Feature, Lookup lists ///////////////////////////////////////////////
@@ -3355,6 +3452,7 @@
 	        }
 	    };
 	}
+
 	/**
 	 * @typedef GlyphOptions
 	 * @type Object
@@ -3366,6 +3464,7 @@
 	 * @property {number} [xMax]
 	 * @property {number} [yMax]
 	 * @property {number} [advanceWidth]
+	 * @property {number} [leftSideBearing]
 	 */
 
 	// A Glyph is an individual mark that often corresponds to a character.
@@ -3416,6 +3515,10 @@
 
 	    if ('advanceWidth' in options) {
 	        this.advanceWidth = options.advanceWidth;
+	    }
+
+	    if ('leftSideBearing' in options) {
+	        this.leftSideBearing = options.leftSideBearing;
 	    }
 
 	    // The path for a glyph is the most memory intensive, and is bound as a value
@@ -6564,7 +6667,7 @@
 	        return {
 	            substFormat: 1,
 	            coverage: this.parsePointer(Parser.coverage),
-	            deltaGlyphId: this.parseUShort()
+	            deltaGlyphId: this.parseShort()
 	        };
 	    } else if (substFormat === 2) {
 	        return {
@@ -6768,7 +6871,7 @@
 	        return new table.Table('substitutionTable', [
 	            {name: 'substFormat', type: 'USHORT', value: 1},
 	            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
-	            {name: 'deltaGlyphID', type: 'USHORT', value: subtable.deltaGlyphId}
+	            {name: 'deltaGlyphID', type: 'SHORT', value: subtable.deltaGlyphId}
 	        ]);
 	    } else {
 	        return new table.Table('substitutionTable', [
@@ -6896,6 +6999,8 @@
 	        var tag = p.parseTag();
 	        var dataOffset = p.parseULong();
 	        var dataLength = p.parseULong();
+	        if (tag === 'appl' || tag === 'bild')
+	           { continue; }
 	        var text = decode.UTF8(data, start + dataOffset, dataLength);
 
 	        tags[tag] = text;
@@ -7413,9 +7518,10 @@
 	 * @exports opentype.Layout
 	 * @class
 	 */
-	function Layout(font, tableName) {
+	function Layout(font, tableName, supportedFeatures) {
 	    this.font = font;
 	    this.tableName = tableName;
+	    this.supportedFeatures = supportedFeatures || [];
 	}
 
 	Layout.prototype = {
@@ -7541,6 +7647,66 @@
 	                return langSysRecord.langSys;
 	            }
 	        }
+	    },
+
+	    /**
+	     * Returns an ordered, union lookup tables for all requested features.
+	     * This follows an ordered processing requirements (specs):
+	     * > During text processing, it processes the lookups referenced by that feature in their lookup list order.
+	     * > Note that an application may process lookups for multiple features simultaneously. In this case:
+	     * > the list of lookups is the union of lookups referenced by all of those features, and these are all processed in their lookup list order.
+	     *
+	     * https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/chapter2#lookup-list-table
+	     *
+	     * @param {string[]} requestedFeatures
+	     * @param {string} [script='DFLT']
+	     * @param {string} [language='dlft']
+	     * @return {Object[]} an ordered lookup list of requested features
+	     */
+	    getFeaturesLookups: function(requestedFeatures, script, language) {
+	        var this$1 = this;
+
+	        if (!this.font.tables[this.tableName] || !requestedFeatures) {
+	            return [];
+	        }
+
+	        // Fitler out only supported by layout table features
+	        requestedFeatures = this.supportedFeatures.filter(function (f) { return requestedFeatures.includes(f.featureName); });
+
+	        var lookupUnionList = {};
+	        var allLookups = this.font.tables[this.tableName].lookups;
+	        requestedFeatures.forEach(function (feature) {
+	            var featureName = feature.featureName;
+	            var supportedLookups = feature.supportedLookups;
+	            var featureTable = this$1.getFeatureTable(script, language, featureName);
+	            if (featureTable && supportedLookups.length) {
+	                var lookupTable;
+	                var lookupListIndexes = featureTable.lookupListIndexes;
+	                for (var i = 0; i < lookupListIndexes.length; i++) {
+	                    var idx = "idx" + (lookupListIndexes[i]);
+	                    if (lookupUnionList.hasOwnProperty(idx)) { continue; } // Skips a lookup table that is already on the processing list
+	                    lookupTable = allLookups[lookupListIndexes[i]];
+	                    if (!lookupTable) { continue; }
+	                    var validLookupType = supportedLookups.indexOf(lookupTable.lookupType) !== -1;
+	                    // Extension lookup table support
+	                    if (lookupTable.subtables.length === 1) {
+	                        var ref = lookupTable.subtables[0];
+	                        var extensionLookupType = ref.extensionLookupType;
+	                        var extension = ref.extension;
+	                        if (extensionLookupType && extension && supportedLookups.indexOf(extensionLookupType) !== -1) {
+	                            lookupTable.lookupType = extensionLookupType;
+	                            lookupTable.subtables = [extension];
+	                            validLookupType = true;
+	                        }
+	                    }
+	                    if (validLookupType) {
+	                        lookupTable.feature = featureName;
+	                        lookupUnionList[idx] = lookupTable;
+	                    }
+	                }
+	            }
+	        });
+	        return Object.values(lookupUnionList);
 	    },
 
 	    /**
@@ -7697,7 +7863,10 @@
 	 * @constructor
 	 */
 	function Position(font) {
-	    Layout.call(this, font, 'gpos');
+	    Layout.call(this, font, 'gpos', [
+	        { featureName: 'kern',  supportedLookups: [2]  },
+	        { featureName: 'mark',  supportedLookups: [4]  }
+	    ]);
 	}
 
 	Position.prototype = Layout.prototype;
@@ -7748,6 +7917,35 @@
 	};
 
 	/**
+	 * Find a mark to base attachment pair
+	 *
+	 * @param {integer} markGlyphIndex - attached mark glyph index
+	 * @param {integer} baseGlyphIndex - base glyph index
+	 * @returns {Object[]}
+	 */
+	Position.prototype.getMarkToBaseAttachment = function(lookupTables, markGlyphIndex, baseGlyphIndex) {
+	    for (var i = 0; i < lookupTables.length; i++) {
+	        var subtables = lookupTables[i].subtables;
+	        for (var j = 0; j < subtables.length; j++) {
+	            var subtable = subtables[j];
+	            var markCovIndex = this.getCoverageIndex(subtable.markCoverage, markGlyphIndex);
+	            var baseCovIndex = this.getCoverageIndex(subtable.baseCoverage, baseGlyphIndex);
+	            if (markCovIndex < 0 || baseCovIndex < 0) { continue; }
+	            switch (subtable.posFormat) {
+	                case 1:
+	                    var markDefinition = subtable.markArray[markCovIndex];
+	                    var baseDefinition = subtable.baseArray[baseCovIndex];
+	                    return {
+	                        attachmentMarkPoint: markDefinition.attachmentPoint,
+	                        baseMarkPoint: baseDefinition[markDefinition.class],
+	                    };
+	            }
+	        }
+	    }
+	    return undefined;
+	};
+
+	/**
 	 * List all kerning lookup tables.
 	 *
 	 * @param {string} [script='DFLT'] - use font.position.getDefaultScriptName() for a better default value
@@ -7755,9 +7953,23 @@
 	 * @return {object[]} The list of kerning lookup tables (may be empty), or undefined if there is no GPOS table (and we should use the kern table)
 	 */
 	Position.prototype.getKerningTables = function(script, language) {
-	    if (this.font.tables.gpos) {
-	        return this.getLookupTables(script, language, 'kern', 2);
-	    }
+	    return this.getPositionFeatures(['kern'], script, language);
+	};
+
+	/**
+	 * Assembling features into ordered lookup list
+	 * Assemble all features (including any required feature) for the glyph run’s language system.
+	 * Assemble all lookups in these features, in LookupList order, removing any duplicates.
+	 *
+	 * https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/chapter2#lookup-table
+	 *
+	 * @param {string[]} list of requested features
+	 * @param {string} script
+	 * @param {string} language
+	 * @return {Object[]} ordered lookup processing list
+	 */
+	Position.prototype.getPositionFeatures = function(features, script, language) {
+	    return this.getFeaturesLookups(features, script, language);
 	};
 
 	// The Substitution object provides utility methods to manipulate
@@ -7770,7 +7982,10 @@
 	 * @constructor
 	 */
 	function Substitution(font) {
-	    Layout.call(this, font, 'gsub');
+	    Layout.call(this, font, 'gsub', [
+	        { featureName: 'rlig',  supportedLookups: [4] }
+	        // TODO: Define all supported features to use layout.getFeaturesLookups for a sequence ordered feature lookups
+	    ]);
 	}
 
 	// Check if 2 arrays of primitives are equal.
@@ -8138,7 +8353,7 @@
 	}
 
 	function arrayBufferToNodeBuffer(ab) {
-	    var buffer = new Buffer(ab.byteLength);
+	    var buffer = Buffer.alloc(ab.byteLength);
 	    var view = new Uint8Array(ab);
 	    for (var i = 0; i < buffer.length; ++i) {
 	        buffer[i] = view[i];
@@ -12111,6 +12326,14 @@
 	}
 
 	/**
+	 * Check if a char is Thai
+	 * @param {string} c a single char
+	 */
+	function isThaiChar(c) {
+	    return /[\u0E00-\u0E7F]/.test(c);
+	}
+
+	/**
 	 * Check if a char is Latin
 	 * @param {string} c a single char
 	 */
@@ -12934,6 +13157,111 @@
 	}
 
 	/**
+	 * Thai word context checkers
+	 */
+	function thaiWordStartCheck(contextParams) {
+	    var char = contextParams.current;
+	    var prevChar = contextParams.get(-1);
+	    return (
+	        // ? thai first char
+	        (prevChar === null && isThaiChar(char)) ||
+	        // ? thai char preceded with a non thai char
+	        (!isThaiChar(prevChar) && isThaiChar(char))
+	    );
+	}
+
+	function thaiWordEndCheck(contextParams) {
+	    var nextChar = contextParams.get(1);
+	    return (
+	        // ? last thai char
+	        (nextChar === null) ||
+	        // ? next char is not thai
+	        (!isThaiChar(nextChar))
+	    );
+	}
+
+	var thaiWordCheck = {
+	    startCheck: thaiWordStartCheck,
+	    endCheck: thaiWordEndCheck
+	};
+
+	/**
+	 * Apply Thai Glyph Composition feature to tokens
+	 */
+
+	/**
+	  * Update context params
+	  * @param {any} tokens a list of tokens
+	  * @param {number} index current item index
+	  */
+	function getContextParams$2(tokens, index) {
+	    var context = tokens.map(function (token) { return token.activeState.value; });
+	    return new ContextParams(context, index || 0);
+	}
+
+	/**
+	  * Apply Thai required glyphs composition substitutions
+	  * @param {ContextRange} range a range of tokens
+	  */
+	function thaiGlyphComposition(range) {
+	    var this$1 = this;
+
+	    var script = 'thai';
+	    var tokens = this.tokenizer.getRangeTokens(range);
+	    var contextParams = getContextParams$2(tokens, 0);
+	    contextParams.context.forEach(function (glyphIndex, index) {
+	        contextParams.setCurrentIndex(index);
+	        var substitutions = this$1.query.lookupFeature({
+	            tag: 'ccmp', script: script, contextParams: contextParams
+	        });
+	        if (substitutions.length) {
+	            substitutions.forEach(
+	                function (action) { return applySubstitution(action, tokens, index); }
+	            );
+	            contextParams = getContextParams$2(tokens, index);
+	        }
+	    });
+	}
+
+	/**
+	 * Apply Thai Ligatures feature to tokens
+	 */
+
+	/**
+	  * Update context params
+	  * @param {any} tokens a list of tokens
+	  * @param {number} index current item index
+	  */
+	function getContextParams$3(tokens, index) {
+	    var context = tokens.map(function (token) { return token.activeState.value; });
+	    return new ContextParams(context, index || 0);
+	}
+
+	/**
+	  * Apply Thai required glyphs composition substitutions
+	  * @param {ContextRange} range a range of tokens
+	  */
+	function thaiLigatures(range) {
+	    var this$1 = this;
+
+	    var script = 'thai';
+	    var tokens = this.tokenizer.getRangeTokens(range);
+	    var contextParams = getContextParams$3(tokens, 0);
+	    contextParams.context.forEach(function (glyphIndex, index) {
+	        contextParams.setCurrentIndex(index);
+	        var substitutions = this$1.query.lookupFeature({
+	            tag: 'liga', script: script, contextParams: contextParams
+	        });
+	        if (substitutions.length) {
+	            substitutions.forEach(
+	                function (action) { return applySubstitution(action, tokens, index); }
+	            );
+	            contextParams = getContextParams$3(tokens, index);
+	        }
+	    });
+	}
+
+	/**
 	 * Infer bidirectional properties for a given text and apply
 	 * the corresponding layout rules.
 	 */
@@ -12964,7 +13292,8 @@
 	Bidi.prototype.contextChecks = ({
 	    latinWordCheck: latinWordCheck,
 	    arabicWordCheck: arabicWordCheck,
-	    arabicSentenceCheck: arabicSentenceCheck
+	    arabicSentenceCheck: arabicSentenceCheck,
+	    thaiWordCheck: thaiWordCheck
 	});
 
 	/**
@@ -12985,6 +13314,7 @@
 	    registerContextChecker.call(this, 'latinWord');
 	    registerContextChecker.call(this, 'arabicWord');
 	    registerContextChecker.call(this, 'arabicSentence');
+	    registerContextChecker.call(this, 'thaiWord');
 	    return this.tokenizer.tokenize(this.text);
 	}
 
@@ -13086,10 +13416,7 @@
 	function applyArabicRequireLigatures() {
 	    var this$1 = this;
 
-	    var script = 'arab';
-	    if (!this.featuresTags.hasOwnProperty(script)) { return; }
-	    var tags = this.featuresTags[script];
-	    if (tags.indexOf('rlig') === -1) { return; }
+	    if (!this.hasFeatureEnabled('arab', 'rlig')) { return; }
 	    checkGlyphIndexStatus.call(this);
 	    var ranges = this.tokenizer.getContextRanges('arabicWord');
 	    ranges.forEach(function (range) {
@@ -13103,15 +13430,27 @@
 	function applyLatinLigatures() {
 	    var this$1 = this;
 
-	    var script = 'latn';
-	    if (!this.featuresTags.hasOwnProperty(script)) { return; }
-	    var tags = this.featuresTags[script];
-	    if (tags.indexOf('liga') === -1) { return; }
+	    if (!this.hasFeatureEnabled('latn', 'liga')) { return; }
 	    checkGlyphIndexStatus.call(this);
 	    var ranges = this.tokenizer.getContextRanges('latinWord');
 	    ranges.forEach(function (range) {
 	        latinLigature.call(this$1, range);
 	    });
+	}
+
+	/**
+	 * Apply available thai features
+	 */
+	function applyThaiFeatures() {
+	    var this$1 = this;
+
+	    checkGlyphIndexStatus.call(this);
+	    var ranges = this.tokenizer.getContextRanges('thaiWord');
+	    ranges.forEach(function (range) {
+	        if (this$1.hasFeatureEnabled('thai', 'liga')) { thaiLigatures.call(this$1, range); }
+	        if (this$1.hasFeatureEnabled('thai', 'ccmp')) { thaiGlyphComposition.call(this$1, range); }
+	    });
+
 	}
 
 	/**
@@ -13124,6 +13463,9 @@
 
 	/**
 	 * Apply features to registered contexts
+	 *
+	 * - A Glyph Composition (ccmp) feature should be always applied
+	 * https://learn.microsoft.com/en-us/typography/opentype/spec/features_ae#tag-ccmp
 	 */
 	Bidi.prototype.applyFeaturesToContexts = function () {
 	    if (this.checkContextReady('arabicWord')) {
@@ -13136,6 +13478,19 @@
 	    if (this.checkContextReady('arabicSentence')) {
 	        reverseArabicSentences.call(this);
 	    }
+	    if (this.checkContextReady('thaiWord')) {
+	        applyThaiFeatures.call(this);
+	    }
+	};
+
+	/**
+	 * Check whatever feature is successfully enabled for a script
+	 * @param {string} script
+	 * @param {string} tag feature name
+	 * @returns {boolean}
+	 */
+	Bidi.prototype.hasFeatureEnabled = function(script, tag) {
+	    return (this.featuresTags[script] || []).indexOf(tag) !== -1;
 	};
 
 	/**
@@ -13175,6 +13530,50 @@
 	    }
 	    return indexes;
 	};
+
+	/**
+	 * Apply kerning positioning advance glyphs advance
+	 */
+
+	function kern(lookupTable, glyphs) {
+	    var coords = [];
+	    for (var i = 0; i < glyphs.length; i += 1) {
+	        var glyph = glyphs[i];
+	        coords[i] = { xAdvance: 0, yAdvance: 0 };
+	        if (i < glyphs.length - 1) {
+	            coords[i] = {
+	                xAdvance: this.position.getKerningValue([lookupTable], glyph.index, glyphs[i + 1].index),
+	                yAdvance: 0
+	            };
+	        }
+	    }
+	    return coords;
+	}
+
+	/**
+	 * Apply MarkToBase positioning advance glyphs advance
+	 */
+
+	function mark(lookupTable, glyphs) {
+	    var coords = [];
+	    for (var i = 0; i < glyphs.length; i += 1) {
+	        var glyph = glyphs[i];
+	        coords[i] = { xAdvance: 0, yAdvance: 0 };
+	        if (i > 0) {
+	            var coordinatedPair = this.position.getMarkToBaseAttachment([lookupTable], glyph.index, glyphs[i - 1].index);
+	            if (coordinatedPair) {
+	                var attachmentMarkPoint = coordinatedPair.attachmentMarkPoint;
+	                var baseMarkPoint = coordinatedPair.baseMarkPoint;
+	                // Base mark's advanceWidth must be ignored to have a proper positiong for the attachment mark
+	                coords[i] = {
+	                    xAdvance: baseMarkPoint.xCoordinate - attachmentMarkPoint.xCoordinate - glyphs[i - 1].advanceWidth,
+	                    yAdvance: baseMarkPoint.yCoordinate - attachmentMarkPoint.yCoordinate
+	                };
+	            }
+	        }
+	    }
+	    return coords;
+	}
 
 	// The Font object
 
@@ -13321,17 +13720,23 @@
 	 * @param {any} options features options
 	 */
 	Font.prototype.updateFeatures = function (options) {
-	    // TODO: update all features options not only 'latn'.
+	    // TODO: update all features options not only 'DFLT', 'latn'.
+	    var configureable = ['DFLT', 'latn'];
 	    return this.defaultRenderOptions.features.map(function (feature) {
-	        if (feature.script === 'latn') {
+	        if (configureable.includes(feature.script)) {
 	            return {
-	                script: 'latn',
-	                tags: feature.tags.filter(function (tag) { return options[tag]; })
+	                script: feature.script,
+	                tags: feature.tags.filter(function (tag) { return !options || options[tag]; })
 	            };
-	        } else {
-	            return feature;
 	        }
+	        return feature;
 	    });
+	};
+
+	Font.prototype.getFeaturesConfig = function (options) {
+	    return options ?
+	    this.updateFeatures(options.features) :
+	    this.defaultRenderOptions.features;
 	};
 
 	/**
@@ -13353,11 +13758,7 @@
 	    var charToGlyphIndexMod = function (token) { return this$1.charToGlyphIndex(token.char); };
 	    bidi.registerModifier('glyphIndex', null, charToGlyphIndexMod);
 
-	    // roll-back to default features
-	    var features = options ?
-	    this.updateFeatures(options.features) :
-	    this.defaultRenderOptions.features;
-
+	    var features = this.getFeaturesConfig(options);
 	    bidi.applyFeatures(this, features);
 
 	    var indexes = bidi.getTextGlyphs(s);
@@ -13449,8 +13850,9 @@
 	         * and shouldn't be turned off when rendering arabic text.
 	         */
 	        { script: 'arab', tags: ['init', 'medi', 'fina', 'rlig'] },
-	        { script: 'latn', tags: ['liga', 'rlig'] }
-	    ]
+	        { script: 'latn', tags: ['liga', 'rlig'] },
+	        { script: 'thai', tags: ['liga', 'ccmp'] },
+	        { script: 'DFLT', tags: ['mark'] } ]
 	};
 
 	/**
@@ -13470,25 +13872,18 @@
 	    options = Object.assign({}, this.defaultRenderOptions, options);
 	    var fontScale = 1 / this.unitsPerEm * fontSize;
 	    var glyphs = this.stringToGlyphs(text, options);
-	    var kerningLookups;
-	    if (options.kerning) {
-	        var script = options.script || this.position.getDefaultScriptName();
-	        kerningLookups = this.position.getKerningTables(script, options.language);
-	    }
+	    var glyphsPositions = this.getGlyphsPositions(glyphs, options);
+
 	    for (var i = 0; i < glyphs.length; i += 1) {
 	        var glyph = glyphs[i];
-	        callback.call(this, glyph, x, y, fontSize, options);
+	        var ref = glyphsPositions[i];
+	        var xAdvance = ref.xAdvance;
+	        var yAdvance = ref.yAdvance;
+
+	        callback.call(this, glyph, x + (xAdvance * fontScale), y + (yAdvance * fontScale), fontSize, options);
+
 	        if (glyph.advanceWidth) {
 	            x += glyph.advanceWidth * fontScale;
-	        }
-
-	        if (options.kerning && i < glyphs.length - 1) {
-	            // We should apply position adjustment lookups in a more generic way.
-	            // Here we only use the xAdvance value.
-	            var kerningValue = kerningLookups ?
-	                  this.position.getKerningValue(kerningLookups, glyph.index, glyphs[i + 1].index) :
-	                  this.getKerningValue(glyph, glyphs[i + 1]);
-	            x += kerningValue * fontScale;
 	        }
 
 	        if (options.letterSpacing) {
@@ -13498,6 +13893,65 @@
 	        }
 	    }
 	    return x;
+	};
+
+	/**
+	 * Returns array of glyphs' relative position advances for a given sequence.
+	 *
+	 * Supported features:
+	 * - kern - kerning
+	 * - mark - mark to base attachments
+	 *
+	 * @param {opentype.Glyph[]} glyphs
+	 * @returns {Object[]} array of { xAdvance: number, yAdvance: number } for a glyph ordered by their index
+	 */
+	Font.prototype.getGlyphsPositions = function(glyphs, options) {
+	    var this$1 = this;
+
+
+	    var script = options.script || this.position.getDefaultScriptName();
+
+	    var features = this
+	        .getFeaturesConfig(options)
+	        .filter(function (f) { return f.script === 'DFLT'; })
+	        .reduce(function (tags, feature) { return tags.concat(feature.tags); }, []);
+
+	    // Force a kern feature
+	    if (options && options.kerning) { features.push('kern'); }
+
+	    var glyphsPositions = [];
+	    for (var i = 0; i < glyphs.length; i += 1) {
+	        glyphsPositions[i] = { xAdvance: 0, yAdvance: 0 };
+	    }
+
+	    var kernLookupTableProcessed = false;
+	    var featuresLookups = this.position.getPositionFeatures(features, script, options.language);
+	    featuresLookups.forEach(function (lookupTable) {
+	        var pos = [];
+	        switch (lookupTable.feature) {
+	            case 'kern':
+	                pos = kern.call(this$1, lookupTable, glyphs);
+	                kernLookupTableProcessed = true;
+	                break;
+	            case 'mark':
+	                pos = mark.call(this$1, lookupTable, glyphs);
+	                break;
+	        }
+
+	        // Reposition glyphs
+	        pos.forEach(function (glyphPosition, index) {
+	            glyphsPositions[index].xAdvance += glyphPosition.xAdvance;
+	            glyphsPositions[index].yAdvance += glyphPosition.yAdvance;
+	        });
+	    });
+
+	    // Support for the 'kern' table glyph pairs
+	    if (options.kerning && kernLookupTableProcessed === false) {
+	        for (var i$1 = 0; i$1 < glyphs.length - 1; i$1 += 1) {
+	            glyphsPositions[i$1].xAdvance += this.getKerningValue(glyphs[i$1], glyphs[i$1 + 1]);
+	        }
+	    }
+	    return glyphsPositions;
 	};
 
 	/**
@@ -14013,12 +14467,47 @@
 	};
 
 	subtableParsers$1[3] = function parseLookup3() { return { error: 'GPOS Lookup 3 not supported' }; };
-	subtableParsers$1[4] = function parseLookup4() { return { error: 'GPOS Lookup 4 not supported' }; };
+
+	// https://learn.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-4-mark-to-base-attachment-positioning-subtable
+	subtableParsers$1[4] = function parseLookup4() {
+	    var start = this.offset + this.relativeOffset;
+	    var posFormat = this.parseUShort();
+	    check.assert(posFormat === 1, '0x' + start.toString(16) + ': GPOS lookup type 4 format must be 1.');
+	    var markCoverage = this.parsePointer(Parser.coverage);
+	    var baseCoverage = this.parsePointer(Parser.coverage);
+	    var markClassCount = this.parseUShort();
+	    var markArray = this.parsePointer(function() {
+	        return this.parseMarkArray();
+	    });
+	    var baseArray = this.parsePointer(function() {
+	        return this.parseBaseArray(markClassCount);
+	    });
+	    return {
+	        posFormat: posFormat,
+	        markCoverage: markCoverage,
+	        baseCoverage: baseCoverage,
+	        markArray: markArray,
+	        baseArray: baseArray
+	    };
+	};
+
 	subtableParsers$1[5] = function parseLookup5() { return { error: 'GPOS Lookup 5 not supported' }; };
 	subtableParsers$1[6] = function parseLookup6() { return { error: 'GPOS Lookup 6 not supported' }; };
 	subtableParsers$1[7] = function parseLookup7() { return { error: 'GPOS Lookup 7 not supported' }; };
 	subtableParsers$1[8] = function parseLookup8() { return { error: 'GPOS Lookup 8 not supported' }; };
-	subtableParsers$1[9] = function parseLookup9() { return { error: 'GPOS Lookup 9 not supported' }; };
+
+	// https://learn.microsoft.com/en-us/typography/opentype/spec/gpos#lookuptype-9-extension-positioning
+	subtableParsers$1[9] = function parseLookup9() {
+	    var start = this.offset + this.relativeOffset;
+	    var posFormat = this.parseUShort();
+	    check.assert(posFormat === 1, '0x' + start.toString(16) + ': GPOS lookup type 9 format must be 1.');
+	    var extensionLookupType = this.parseUShort();
+	    return {
+	        posFormat: posFormat,
+	        extensionLookupType: extensionLookupType,
+	        extension: this.parsePointer32(subtableParsers$1[extensionLookupType])
+	    };
+	};
 
 	// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos
 	function parseGposTable(data, start) {
@@ -14124,7 +14613,7 @@
 	    }
 	}
 
-	var kern = { parse: parseKernTable };
+	var kern$1 = { parse: parseKernTable };
 
 	// The `loca` table stores the offsets to the locations of the glyphs in the font.
 
@@ -14329,6 +14818,9 @@
 
 	        numTables = parse.getUShort(data, 12);
 	        tableEntries = parseWOFFTableEntries(data, numTables);
+	    } else if (signature === 'wOF2') {
+	        var issue = 'https://github.com/opentypejs/opentype.js/issues/183#issuecomment-1147228025';
+	        throw new Error('WOFF2 require an external decompressor library, see examples at: ' + issue);
 	    } else {
 	        throw new Error('Unsupported OpenType signature ' + signature);
 	    }
@@ -14468,7 +14960,7 @@
 
 	    if (kernTableEntry) {
 	        var kernTable = uncompressTable(data, kernTableEntry);
-	        font.kerningPairs = kern.parse(kernTable.data, kernTable.offset);
+	        font.kerningPairs = kern$1.parse(kernTable.data, kernTable.offset);
 	    } else {
 	        font.kerningPairs = {};
 	    }
