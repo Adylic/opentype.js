@@ -1,5 +1,5 @@
 /**
- * https://opentype.js.org v1.3.5 | (c) Frederik De Bleser and other contributors | MIT License | Uses tiny-inflate by Devon Govett and string.prototype.codepointat polyfill by Mathias Bynens
+ * https://opentype.js.org v1.3.6 | (c) Frederik De Bleser and other contributors | MIT License | Uses tiny-inflate by Devon Govett and string.prototype.codepointat polyfill by Mathias Bynens
  */
 
 /*! https://mths.be/codepointat v0.2.0 by @mathias */
@@ -7912,12 +7912,11 @@ Position.prototype.getKerningValue = function(kerningLookups, leftIndex, rightIn
 
 /**
  * Find a mark to base attachment pair
- *
- * @param {integer} markGlyphIndex - attached mark glyph index
  * @param {integer} baseGlyphIndex - base glyph index
+ * @param {integer} markGlyphIndex - attached mark glyph index
  * @returns {Object[]}
  */
-Position.prototype.getMarkToBaseAttachment = function(lookupTables, markGlyphIndex, baseGlyphIndex) {
+Position.prototype.getMarkToBaseAttachment = function(lookupTables, baseGlyphIndex, markGlyphIndex) {
     for (var i = 0; i < lookupTables.length; i++) {
         var subtables = lookupTables[i].subtables;
         for (var j = 0; j < subtables.length; j++) {
@@ -13534,9 +13533,9 @@ function kern(lookupTable, glyphs) {
     for (var i = 0; i < glyphs.length; i += 1) {
         var glyph = glyphs[i];
         coords[i] = { xAdvance: 0, yAdvance: 0 };
-        if (i < glyphs.length - 1) {
+        if (i > 0) {
             coords[i] = {
-                xAdvance: this.position.getKerningValue([lookupTable], glyph.index, glyphs[i + 1].index),
+                xAdvance: this.position.getKerningValue([lookupTable], glyphs[i - 1].index, glyph.index),
                 yAdvance: 0
             };
         }
@@ -13554,7 +13553,7 @@ function mark(lookupTable, glyphs) {
         var glyph = glyphs[i];
         coords[i] = { xAdvance: 0, yAdvance: 0 };
         if (i > 0) {
-            var coordinatedPair = this.position.getMarkToBaseAttachment([lookupTable], glyph.index, glyphs[i - 1].index);
+            var coordinatedPair = this.position.getMarkToBaseAttachment([lookupTable], glyphs[i - 1].index, glyph.index);
             if (coordinatedPair) {
                 var attachmentMarkPoint = coordinatedPair.attachmentMarkPoint;
                 var baseMarkPoint = coordinatedPair.baseMarkPoint;
@@ -13941,8 +13940,8 @@ Font.prototype.getGlyphsPositions = function(glyphs, options) {
 
     // Support for the 'kern' table glyph pairs
     if (options.kerning && kernLookupTableProcessed === false) {
-        for (var i$1 = 0; i$1 < glyphs.length - 1; i$1 += 1) {
-            glyphsPositions[i$1].xAdvance += this.getKerningValue(glyphs[i$1], glyphs[i$1 + 1]);
+        for (var i$1 = 1; i$1 < glyphs.length; i$1 += 1) {
+            glyphsPositions[i$1].xAdvance += this.getKerningValue(glyphs[i$1 - 1], glyphs[i$1]);
         }
     }
     return glyphsPositions;
