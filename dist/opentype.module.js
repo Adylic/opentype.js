@@ -1,5 +1,5 @@
 /**
- * https://opentype.js.org v1.3.6 | (c) Frederik De Bleser and other contributors | MIT License | Uses tiny-inflate by Devon Govett and string.prototype.codepointat polyfill by Mathias Bynens
+ * https://opentype.js.org v1.3.7 | (c) Frederik De Bleser and other contributors | MIT License | Uses tiny-inflate by Devon Govett and string.prototype.codepointat polyfill by Mathias Bynens
  */
 
 /*! https://mths.be/codepointat v0.2.0 by @mathias */
@@ -13920,6 +13920,7 @@ Font.prototype.getGlyphsPositions = function(glyphs, options) {
     var kernLookupTableProcessed = false;
     var featuresLookups = this.position.getPositionFeatures(features, script, options.language);
     featuresLookups.forEach(function (lookupTable) {
+        var kerningValue = 0;
         var pos = [];
         switch (lookupTable.feature) {
             case 'kern':
@@ -13933,15 +13934,22 @@ Font.prototype.getGlyphsPositions = function(glyphs, options) {
 
         // Reposition glyphs
         pos.forEach(function (glyphPosition, index) {
-            glyphsPositions[index].xAdvance += glyphPosition.xAdvance;
-            glyphsPositions[index].yAdvance += glyphPosition.yAdvance;
+            if (lookupTable.feature === 'kern') {
+                kerningValue += glyphPosition.xAdvance; // kerning apply to entire sequence
+                glyphsPositions[index].xAdvance += kerningValue;
+            } else {
+                glyphsPositions[index].xAdvance += glyphPosition.xAdvance;
+                glyphsPositions[index].yAdvance += glyphPosition.yAdvance;
+            }
         });
     });
 
     // Support for the 'kern' table glyph pairs
     if (options.kerning && kernLookupTableProcessed === false) {
+        var kerningValue = 0;
         for (var i$1 = 1; i$1 < glyphs.length; i$1 += 1) {
-            glyphsPositions[i$1].xAdvance += this.getKerningValue(glyphs[i$1 - 1], glyphs[i$1]);
+            kerningValue += this.getKerningValue(glyphs[i$1 - 1], glyphs[i$1]); // kerning apply to entire sequence
+            glyphsPositions[i$1].xAdvance += kerningValue;
         }
     }
     return glyphsPositions;
