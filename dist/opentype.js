@@ -1,5 +1,5 @@
 /**
- * https://opentype.js.org v1.3.7 | (c) Frederik De Bleser and other contributors | MIT License | Uses tiny-inflate by Devon Govett and string.prototype.codepointat polyfill by Mathias Bynens
+ * https://opentype.js.org v1.3.8 | (c) Frederik De Bleser and other contributors | MIT License | Uses tiny-inflate by Devon Govett and string.prototype.codepointat polyfill by Mathias Bynens
  */
 
 (function (global, factory) {
@@ -7982,10 +7982,13 @@
 	 */
 	function Substitution(font) {
 	    Layout.call(this, font, 'gsub', [
-	        { featureName: 'rlig',  supportedLookups: [4] }
-	        // TODO: Define all supported features to use layout.getFeaturesLookups for a sequence ordered feature lookups
+	        { featureName: 'rlig',  supportedLookups: [4] },
+	        { featureName: 'liga',  supportedLookups: [4] }, 
+	        { featureName: 'ccmp',  supportedLookups: [2, 4, 6] }
 	    ]);
 	}
+
+	Substitution.prototype = Layout.prototype;
 
 	// Check if 2 arrays of primitives are equal.
 	function arraysEqual(ar1, ar2) {
@@ -12698,6 +12701,7 @@
 	/**
 	 * Lookup a feature using a query parameters
 	 * @param {FQuery} query feature query
+	 * @deprecated
 	 */
 	FeatureQuery.prototype.lookupFeature = function (query) {
 	    var contextParams = query.contextParams;
@@ -12768,6 +12772,22 @@
 	        }
 	    }
 	    return substitutions.length ? substitutions : null;
+	};
+
+	/**
+	 * Assembling features into ordered lookup list
+	 * Assemble all features (including any required feature) for the glyph run’s language system.
+	 * Assemble all lookups in these features, in LookupList order, removing any duplicates.
+	 *
+	 * https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/chapter2#lookup-table
+	 *
+	 * @param {string[]} list of requested features
+	 * @param {string} script
+	 * @param {string} language
+	 * @return {Object[]} ordered lookup processing list
+	 */
+	FeatureQuery.prototype.getSubstitutionFeaturesLookups = function(features, script, language) {
+	    return this.font.substitution.getFeaturesLookups(features, script, language);
 	};
 
 	/**
@@ -12950,13 +12970,37 @@
 	}
 
 	/**
+	 * Apply multiple substitution format 1
+	 * @param {Array} substitutions substitutions
+	 * @param {any} tokens a list of tokens
+	 * @param {number} index token index
+	 */
+	function multiSubstitutionFormat1(action, tokens, index) {
+	    var newTokensList = [];
+	    var substitution = action.substitution;
+	    for (var i = 0; i < substitution.length; i++) {
+	        var substitutionGlyphIndex = substitution[i];
+	        var glyph = this.font.glyphs.get(substitutionGlyphIndex);
+	        var token = new Token(String.fromCharCode(parseInt(glyph.unicode)));
+	        token.setState('glyphIndex', substitutionGlyphIndex);
+	        newTokensList.push(token);
+	    }
+
+	    // Replace single range (glyph) index with multiple glyphs
+	    if (newTokensList.length) {
+	        this.tokenizer.replaceRange(index, 1, newTokensList);
+	    }
+	}
+
+	/**
 	 * Supported substitutions
 	 */
 	var SUBSTITUTIONS = {
 	    11: singleSubstitutionFormat1$1,
 	    12: singleSubstitutionFormat2$1,
 	    63: chainingSubstitutionFormat3$1,
-	    41: ligatureSubstitutionFormat1$1
+	    41: ligatureSubstitutionFormat1$1, 
+	    21: multiSubstitutionFormat1
 	};
 
 	/**
@@ -12967,7 +13011,7 @@
 	 */
 	function applySubstitution(action, tokens, index) {
 	    if (action instanceof SubstitutionAction && SUBSTITUTIONS[action.id]) {
-	        SUBSTITUTIONS[action.id](action, tokens, index);
+	        SUBSTITUTIONS[action.id].call(this, action, tokens, index);
 	    }
 	}
 
@@ -13185,82 +13229,6 @@
 	};
 
 	/**
-	 * Apply Thai Glyph Composition feature to tokens
-	 */
-
-	/**
-	  * Update context params
-	  * @param {any} tokens a list of tokens
-	  * @param {number} index current item index
-	  */
-	function getContextParams$2(tokens, index) {
-	    var context = tokens.map(function (token) { return token.activeState.value; });
-	    return new ContextParams(context, index || 0);
-	}
-
-	/**
-	  * Apply Thai required glyphs composition substitutions
-	  * @param {ContextRange} range a range of tokens
-	  */
-	function thaiGlyphComposition(range) {
-	    var this$1 = this;
-
-	    var script = 'thai';
-	    var tokens = this.tokenizer.getRangeTokens(range);
-	    var contextParams = getContextParams$2(tokens, 0);
-	    contextParams.context.forEach(function (glyphIndex, index) {
-	        contextParams.setCurrentIndex(index);
-	        var substitutions = this$1.query.lookupFeature({
-	            tag: 'ccmp', script: script, contextParams: contextParams
-	        });
-	        if (substitutions.length) {
-	            substitutions.forEach(
-	                function (action) { return applySubstitution(action, tokens, index); }
-	            );
-	            contextParams = getContextParams$2(tokens, index);
-	        }
-	    });
-	}
-
-	/**
-	 * Apply Thai Ligatures feature to tokens
-	 */
-
-	/**
-	  * Update context params
-	  * @param {any} tokens a list of tokens
-	  * @param {number} index current item index
-	  */
-	function getContextParams$3(tokens, index) {
-	    var context = tokens.map(function (token) { return token.activeState.value; });
-	    return new ContextParams(context, index || 0);
-	}
-
-	/**
-	  * Apply Thai required glyphs composition substitutions
-	  * @param {ContextRange} range a range of tokens
-	  */
-	function thaiLigatures(range) {
-	    var this$1 = this;
-
-	    var script = 'thai';
-	    var tokens = this.tokenizer.getRangeTokens(range);
-	    var contextParams = getContextParams$3(tokens, 0);
-	    contextParams.context.forEach(function (glyphIndex, index) {
-	        contextParams.setCurrentIndex(index);
-	        var substitutions = this$1.query.lookupFeature({
-	            tag: 'liga', script: script, contextParams: contextParams
-	        });
-	        if (substitutions.length) {
-	            substitutions.forEach(
-	                function (action) { return applySubstitution(action, tokens, index); }
-	            );
-	            contextParams = getContextParams$3(tokens, index);
-	        }
-	    });
-	}
-
-	/**
 	 * Infer bidirectional properties for a given text and apply
 	 * the corresponding layout rules.
 	 */
@@ -13364,6 +13332,7 @@
 	    if (!font) { throw new Error(
 	        'No valid font was provided to apply features'
 	    ); }
+	    if (!this.font) { this.font = font; }
 	    if (!this.query) { this.query = new FeatureQuery(font); }
 	    for (var f = 0; f < features.length; f++) {
 	        var feature = features[f];
@@ -13381,6 +13350,116 @@
 	Bidi.prototype.registerModifier = function (modifierId, condition, modifier) {
 	    this.tokenizer.registerModifier(modifierId, condition, modifier);
 	};
+
+	function getContextParams$2(tokens, index) {
+	    var context = tokens.map(function (token) { return token.activeState.value; });
+	    return new ContextParams(context, index || 0);
+	}
+
+	/**
+	 * General method for processing GSUB tables with a specified algorithm:
+	 * During text processing, a client applies a lookup to each glyph in the string before moving to the next lookup. 
+	 * A lookup is finished for a glyph after the client locates the target glyph or glyph context and performs a substitution, if specified. 
+	 * 
+	 * https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#table-organization
+	 * 
+	 * Use this algorithm instead of FeatureQuery.prototype.lookupFeature 
+	 * 
+	 * TODO: Support language option
+	 * TODO: Consider moving this implementation to this.font.substitution (use layout.getFeaturesLookups)
+	 * 
+	 * @param {string} script script name
+	 * @param {array} features list of required features to process 
+	 */
+	function applySubstitutions(script, features) {
+	    var this$1 = this;
+
+	    var supportedFeatures = features.filter(function (feature) { return this$1.hasFeatureEnabled(script, feature); });
+	    var featuresLookups = this.query.getSubstitutionFeaturesLookups(supportedFeatures, script);
+	    for (var idx = 0; idx < featuresLookups.length; idx++) {
+	        var lookupTable = featuresLookups[idx];
+	        var subtables = this.query.getLookupSubtables(lookupTable);
+	        // Extract all thai words to apply the lookup feature per feature lookup table order
+	        var ranges = this.tokenizer.getContextRanges((script + "Word")); // use a context range name convention: latinWord, arabWord, thaiWord, etc.
+	        for (var k = 0; k < ranges.length; k++) {
+	            var range = ranges[k];
+	            var tokens = this.tokenizer.getRangeTokens(range);
+	            var contextParams = getContextParams$2(tokens);
+	            for (var index = 0; index < contextParams.context.length; index++) {
+	                contextParams.setCurrentIndex(index);
+	                for (var s = 0; s < subtables.length; s++) {
+	                    var subtable = subtables[s];
+	                    var substType = this.query.getSubstitutionType(lookupTable, subtable);
+	                    var lookup = this.query.getLookupMethod(lookupTable, subtable);
+	                    var substitution = (void 0); 
+	                    switch (substType) {
+	                        case '11':
+	                            substitution = lookup(contextParams.current);
+	                            if (substitution) {
+	                                applySubstitution(
+	                                    new SubstitutionAction({
+	                                        id: 11, tag: lookupTable.feature, substitution: substitution
+	                                    }), 
+	                                    tokens, 
+	                                    contextParams.index
+	                                );
+	                            }
+	                            break;
+	                        case '12':
+	                            substitution = lookup(contextParams.current);
+	                            if (substitution) {
+	                                applySubstitution(
+	                                    new SubstitutionAction({
+	                                        id: 12, tag: lookupTable.feature, substitution: substitution
+	                                    }), 
+	                                    tokens, 
+	                                    contextParams.index
+	                                );
+	                            }
+	                            break;
+	                        case '63':
+	                            substitution = lookup(contextParams);
+	                            if (Array.isArray(substitution) && substitution.length) {
+	                                applySubstitution(
+	                                    new SubstitutionAction({
+	                                        id: 63, tag: lookupTable.feature, substitution: substitution
+	                                    }), 
+	                                    tokens, 
+	                                    contextParams.index
+	                                );
+	                            }
+	                            break;
+	                        case '41':
+	                            substitution = lookup(contextParams);
+	                            if (substitution) {
+	                                applySubstitution(
+	                                    new SubstitutionAction({
+	                                        id: 41, tag: lookupTable.feature, substitution: substitution
+	                                    }), 
+	                                    tokens,
+	                                    contextParams.index
+	                                );
+	                            }
+	                            break;
+	                        case '21':
+	                            substitution = lookup(contextParams.current);
+	                            if (Array.isArray(substitution) && substitution.length) {
+	                                applySubstitution.call(this, 
+	                                    new SubstitutionAction({
+	                                        id: 21, tag: lookupTable.feature, substitution: substitution
+	                                    }), 
+	                                    tokens, 
+	                                    range.startIndex + index
+	                                );
+	                            }
+	                            break;
+	                    }
+	                }
+	                contextParams = getContextParams$2(tokens, index);
+	            }
+	        }
+	    }
+	}
 
 	/**
 	 * Check if 'glyphIndex' is registered
@@ -13441,15 +13520,8 @@
 	 * Apply available thai features
 	 */
 	function applyThaiFeatures() {
-	    var this$1 = this;
-
 	    checkGlyphIndexStatus.call(this);
-	    var ranges = this.tokenizer.getContextRanges('thaiWord');
-	    ranges.forEach(function (range) {
-	        if (this$1.hasFeatureEnabled('thai', 'liga')) { thaiLigatures.call(this$1, range); }
-	        if (this$1.hasFeatureEnabled('thai', 'ccmp')) { thaiGlyphComposition.call(this$1, range); }
-	    });
-
+	    applySubstitutions.call(this, 'thai', ['liga', 'ccmp']);
 	}
 
 	/**
@@ -13940,7 +14012,7 @@
 
 	        // Reposition glyphs
 	        pos.forEach(function (glyphPosition, index) {
-	            if (lookupTable.feature === 'kern') {
+	            if (lookupTable.feature === 'kern') { 
 	                kerningValue += glyphPosition.xAdvance; // kerning apply to entire sequence
 	                glyphsPositions[index].xAdvance += kerningValue;
 	            } else {
@@ -13955,7 +14027,7 @@
 	        var kerningValue = 0;
 	        for (var i$1 = 1; i$1 < glyphs.length; i$1 += 1) {
 	            kerningValue += this.getKerningValue(glyphs[i$1 - 1], glyphs[i$1]); // kerning apply to entire sequence
-	            glyphsPositions[i$1].xAdvance += kerningValue;
+	            glyphsPositions[i$1].xAdvance += kerningValue; 
 	        }
 	    }
 	    return glyphsPositions;
@@ -14826,7 +14898,7 @@
 	        numTables = parse.getUShort(data, 12);
 	        tableEntries = parseWOFFTableEntries(data, numTables);
 	    } else if (signature === 'wOF2') {
-	        var issue = 'https://github.com/opentypejs/opentype.js/issues/183#issuecomment-1147228025';
+	        var issue = "https://github.com/opentypejs/opentype.js/issues/183#issuecomment-1147228025";
 	        throw new Error('WOFF2 require an external decompressor library, see examples at: ' + issue);
 	    } else {
 	        throw new Error('Unsupported OpenType signature ' + signature);
