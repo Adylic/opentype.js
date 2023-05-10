@@ -13,10 +13,13 @@ import Layout from './layout';
  */
 function Substitution(font) {
     Layout.call(this, font, 'gsub', [
-        { featureName: 'rlig',  supportedLookups: [4] }
-        // TODO: Define all supported features to use layout.getFeaturesLookups for a sequence ordered feature lookups
+        { featureName: 'rlig',  supportedLookups: [4] },
+        { featureName: 'liga',  supportedLookups: [4] }, 
+        { featureName: 'ccmp',  supportedLookups: [2, 4, 6] }
     ]);
 }
+
+Substitution.prototype = Layout.prototype;
 
 // Check if 2 arrays of primitives are equal.
 function arraysEqual(ar1, ar2) {

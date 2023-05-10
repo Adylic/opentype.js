@@ -3,8 +3,8 @@
  * the corresponding layout rules.
  */
 
-import Tokenizer from './tokenizer';
-import FeatureQuery from './features/featureQuery';
+import Tokenizer, { ContextParams } from './tokenizer';
+import FeatureQuery, { SubstitutionAction } from './features/featureQuery';
 import arabicWordCheck from './features/arab/contextCheck/arabicWord';
 import arabicSentenceCheck from './features/arab/contextCheck/arabicSentence';
 import arabicPresentationForms from './features/arab/arabicPresentationForms';
@@ -12,8 +12,7 @@ import arabicRequiredLigatures from './features/arab/arabicRequiredLigatures';
 import latinWordCheck from './features/latn/contextCheck/latinWord';
 import latinLigature from './features/latn/latinLigatures';
 import thaiWordCheck from './features/thai/contextCheck/thaiWord';
-import thaiGlyphComposition from './features/thai/thaiGlyphComposition';
-import thaiLigatures from './features/thai/thaiLigatures';
+import applySubstitution from './features/applySubstitution';
 
 /**
  * Create Bidi. features
@@ -110,6 +109,7 @@ Bidi.prototype.applyFeatures = function (font, features) {
     if (!font) throw new Error(
         'No valid font was provided to apply features'
     );
+    if (!this.font) this.font = font;
     if (!this.query) this.query = new FeatureQuery(font);
     for (let f = 0; f < features.length; f++) {
         const feature = features[f];
@@ -127,6 +127,114 @@ Bidi.prototype.applyFeatures = function (font, features) {
 Bidi.prototype.registerModifier = function (modifierId, condition, modifier) {
     this.tokenizer.registerModifier(modifierId, condition, modifier);
 };
+
+function getContextParams(tokens, index) {
+    const context = tokens.map(token => token.activeState.value);
+    return new ContextParams(context, index || 0);
+}
+
+/**
+ * General method for processing GSUB tables with a specified algorithm:
+ * During text processing, a client applies a lookup to each glyph in the string before moving to the next lookup. 
+ * A lookup is finished for a glyph after the client locates the target glyph or glyph context and performs a substitution, if specified. 
+ * 
+ * https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#table-organization
+ * 
+ * Use this algorithm instead of FeatureQuery.prototype.lookupFeature 
+ * 
+ * TODO: Support language option
+ * TODO: Consider moving this implementation to this.font.substitution (use layout.getFeaturesLookups)
+ * 
+ * @param {string} script script name
+ * @param {array} features list of required features to process 
+ */
+function applySubstitutions(script, features) {
+    const supportedFeatures = features.filter(feature => this.hasFeatureEnabled(script, feature));
+    const featuresLookups = this.query.getSubstitutionFeaturesLookups(supportedFeatures, script);
+    for (let idx = 0; idx < featuresLookups.length; idx++) {
+        const lookupTable = featuresLookups[idx];
+        const subtables = this.query.getLookupSubtables(lookupTable);
+        // Extract all thai words to apply the lookup feature per feature lookup table order
+        const ranges = this.tokenizer.getContextRanges(`${script}Word`); // use a context range name convention: latinWord, arabWord, thaiWord, etc.
+        for (let k = 0; k < ranges.length; k++) {
+            const range = ranges[k];
+            let tokens = this.tokenizer.getRangeTokens(range);
+            let contextParams = getContextParams(tokens);
+            for (let index = 0; index < contextParams.context.length; index++) {
+                contextParams.setCurrentIndex(index);
+                for (let s = 0; s < subtables.length; s++) {
+                    const subtable = subtables[s];
+                    const substType = this.query.getSubstitutionType(lookupTable, subtable);
+                    const lookup = this.query.getLookupMethod(lookupTable, subtable);
+                    let substitution; 
+                    switch (substType) {
+                        case '11':
+                            substitution = lookup(contextParams.current);
+                            if (substitution) {
+                                applySubstitution(
+                                    new SubstitutionAction({
+                                        id: 11, tag: lookupTable.feature, substitution
+                                    }), 
+                                    tokens, 
+                                    contextParams.index
+                                );
+                            }
+                            break;
+                        case '12':
+                            substitution = lookup(contextParams.current);
+                            if (substitution) {
+                                applySubstitution(
+                                    new SubstitutionAction({
+                                        id: 12, tag: lookupTable.feature, substitution
+                                    }), 
+                                    tokens, 
+                                    contextParams.index
+                                );
+                            }
+                            break;
+                        case '63':
+                            substitution = lookup(contextParams);
+                            if (Array.isArray(substitution) && substitution.length) {
+                                applySubstitution(
+                                    new SubstitutionAction({
+                                        id: 63, tag: lookupTable.feature, substitution
+                                    }), 
+                                    tokens, 
+                                    contextParams.index
+                                );
+                            }
+                            break;
+                        case '41':
+                            substitution = lookup(contextParams);
+                            if (substitution) {
+                                applySubstitution(
+                                    new SubstitutionAction({
+                                        id: 41, tag: lookupTable.feature, substitution
+                                    }), 
+                                    tokens,
+                                    contextParams.index
+                                );
+                            }
+                            break;
+                        case '21':
+                            substitution = lookup(contextParams.current);
+                            if (Array.isArray(substitution) && substitution.length) {
+                                applySubstitution.call(this, 
+                                    new SubstitutionAction({
+                                        id: 21, tag: lookupTable.feature, substitution
+                                    }), 
+                                    tokens, 
+                                    range.startIndex + index
+                                );
+                            }
+                            break;
+                    }
+                }
+                contextParams = getContextParams(tokens, index);
+            }
+        }
+    }
+}
 
 /**
  * Check if 'glyphIndex' is registered
@@ -182,12 +290,7 @@ function applyLatinLigatures() {
  */
 function applyThaiFeatures() {
     checkGlyphIndexStatus.call(this);
-    const ranges = this.tokenizer.getContextRanges('thaiWord');
-    ranges.forEach(range => {
-        if (this.hasFeatureEnabled('thai', 'liga')) thaiLigatures.call(this, range);
-        if (this.hasFeatureEnabled('thai', 'ccmp')) thaiGlyphComposition.call(this, range);
-    });
-
+    applySubstitutions.call(this, 'thai', ['liga', 'ccmp']);
 }
 
 /**
